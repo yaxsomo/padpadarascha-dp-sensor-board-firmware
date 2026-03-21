@@ -22,7 +22,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "feedback.h"
 
 /* USER CODE END Includes */
 
@@ -64,8 +63,6 @@ UART_HandleTypeDef huart4;
 PCD_HandleTypeDef hpcd_USB_OTG_HS;
 
 /* USER CODE BEGIN PV */
-static uint32_t feedback_test_last_tick_ms = 0U;
-static uint8_t feedback_test_step = 0U;
 
 /* USER CODE END PV */
 
@@ -144,9 +141,6 @@ int main(void)
   MX_UART4_Init();
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
-  Feedback_Init();
-  Feedback_TriggerPattern(FEEDBACK_PATTERN_STARTUP);
-  feedback_test_last_tick_ms = HAL_GetTick();
 
   /* USER CODE END 2 */
 
@@ -157,51 +151,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint32_t now_ms = HAL_GetTick();
-
-    Feedback_Update(now_ms);
-
-    if ((now_ms - feedback_test_last_tick_ms) >= 1000U)
-    {
-      feedback_test_last_tick_ms = now_ms;
-
-      switch (feedback_test_step)
-      {
-        case 0:
-          Feedback_SetColor(FEEDBACK_COLOR_RED);
-          Feedback_PlaySound(FEEDBACK_SOUND_BEEP);
-          break;
-
-        case 1:
-          Feedback_SetColor(FEEDBACK_COLOR_GREEN);
-          Feedback_PlaySound(FEEDBACK_SOUND_SUCCESS);
-          break;
-
-        case 2:
-          Feedback_SetColor(FEEDBACK_COLOR_BLUE);
-          Feedback_PlaySound(FEEDBACK_SOUND_NOTIFICATION);
-          break;
-
-        case 3:
-          Feedback_SetColor(FEEDBACK_COLOR_ORANGE);
-          Feedback_PlaySound(FEEDBACK_SOUND_WARNING);
-          break;
-
-        case 4:
-          Feedback_SetColor(FEEDBACK_COLOR_WHITE);
-          Feedback_PlaySound(FEEDBACK_SOUND_STARTUP);
-          break;
-
-        case 5:
-        default:
-          Feedback_SetColor(FEEDBACK_COLOR_OFF);
-          Feedback_PlaySound(FEEDBACK_SOUND_ERROR);
-          feedback_test_step = 0U;
-          continue;
-      }
-
-      feedback_test_step++;
-    }
   }
   /* USER CODE END 3 */
 }

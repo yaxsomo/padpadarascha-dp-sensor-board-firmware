@@ -1,4 +1,5 @@
 #include "feedback.h"
+#include "configuration.h"
 
 extern TIM_HandleTypeDef htim1;
 extern TIM_HandleTypeDef htim2;
@@ -136,7 +137,10 @@ void Feedback_Init(void)
   (void)HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   (void)HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_2);
   (void)HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
-  (void)HAL_TIM_PWM_Start(&htim2, FEEDBACK_BUZZER_CHANNEL);
+  if (BUZZER_OFF == CONFIG_STATE_OFF)
+  {
+    (void)HAL_TIM_PWM_Start(&htim2, FEEDBACK_BUZZER_CHANNEL);
+  }
 
   Feedback_ApplyRgb(&s_feedback.current_rgb);
   Feedback_SetBuzzerFrequency(0U);
@@ -212,6 +216,13 @@ void Feedback_PlaySound(FeedbackSound_t sound)
 {
   if (s_feedback.initialized == 0U)
   {
+    return;
+  }
+
+  if (BUZZER_OFF == CONFIG_STATE_ON)
+  {
+    (void)sound;
+    Feedback_StopSound();
     return;
   }
 
@@ -363,6 +374,13 @@ static void Feedback_SetBuzzerFrequency(uint16_t frequency_hz)
 {
   uint32_t counts;
   uint32_t auto_reload;
+
+  if (BUZZER_OFF == CONFIG_STATE_ON)
+  {
+    (void)frequency_hz;
+    __HAL_TIM_SET_COMPARE(&htim2, FEEDBACK_BUZZER_CHANNEL, 0U);
+    return;
+  }
 
   if (frequency_hz == 0U)
   {
