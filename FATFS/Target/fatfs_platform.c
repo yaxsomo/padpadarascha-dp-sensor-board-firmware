@@ -26,7 +26,8 @@ uint8_t	BSP_PlatformIsDetected(void) {
         status = SD_NOT_PRESENT;
     }
     /* USER CODE BEGIN 1 */
-    /* user code can be inserted here */
+    /* SDMMC2 is wired to soldered-down external flash, so no removable-media detect pin is used. */
+    status = SD_PRESENT;
     /* USER CODE END 1 */
     return status;
 }

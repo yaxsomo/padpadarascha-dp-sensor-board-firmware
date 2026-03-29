@@ -19,19 +19,47 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "fatfs.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+#include <stdbool.h>
+#include "configuration.h"
+#include "debug_output.h"
+#include "feedback.h"
+#include "flight_logger.h"
+#include "usbd_core.h"
+
+extern bool USB_Mode;
+extern USBD_HandleTypeDef hUsbDeviceHS;
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum
+{
+  APP_MODE_USB = 0U,
+  APP_MODE_LOGGING
+} AppMode_t;
+
+typedef enum
+{
+  APP_STATE_INIT = 0U,
+  APP_STATE_READY,
+  APP_STATE_ACQUIRE,
+  APP_STATE_WARNING_STORAGE,
+  APP_STATE_STOPPED,
+  APP_STATE_ERROR
+} AppState_t;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define USB_BOOT_ENUMERATION_TIMEOUT_MS 1000U
+#define USB_BOOT_ENUMERATION_POLL_MS     10U
 
 /* USER CODE END PD */
 
@@ -60,9 +88,11 @@ TIM_HandleTypeDef htim17;
 
 UART_HandleTypeDef huart4;
 
-PCD_HandleTypeDef hpcd_USB_OTG_HS;
-
 /* USER CODE BEGIN PV */
+static bool usb_device_started = true;
+static bool boot_usb_detected = false;
+static AppMode_t app_mode = APP_MODE_USB;
+static AppState_t app_state = APP_STATE_INIT;
 
 /* USER CODE END PV */
 
@@ -77,7 +107,6 @@ static void MX_SDMMC2_SD_Init(void);
 static void MX_I2C3_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
-static void MX_USB_OTG_HS_PCD_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C5_Init(void);
 static void MX_SPI2_Init(void);
@@ -85,6 +114,9 @@ static void MX_TIM4_Init(void);
 static void MX_TIM17_Init(void);
 static void MX_UART4_Init(void);
 /* USER CODE BEGIN PFP */
+static void UpdateUsbModeState(void);
+static bool IsUsbCableConnected(void);
+static void UpdateAppStateFromLogger(void);
 
 /* USER CODE END PFP */
 
@@ -132,15 +164,44 @@ int main(void)
   MX_I2C3_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
-  MX_USB_OTG_HS_PCD_Init();
   MX_ADC1_Init();
   MX_I2C5_Init();
   MX_SPI2_Init();
   MX_TIM4_Init();
   MX_TIM17_Init();
   MX_UART4_Init();
+  DebugOutput_Init();
   MX_FATFS_Init();
+  MX_USB_DEVICE_Init();
   /* USER CODE BEGIN 2 */
+  printf("[BOOT] System init complete. Debug interface=%s\r\n",
+         (DEBUG_PRINT_INTERFACE == DEBUG_PRINT_INTERFACE_UART4) ? "UART4" : "SWV");
+  HAL_Delay(LOGGER_USB_BOOT_SETTLE_DELAY_MS);
+  boot_usb_detected = IsUsbCableConnected();
+  UpdateUsbModeState();
+  printf("[BOOT] USB detected at boot=%u\r\n", (unsigned int)boot_usb_detected);
+
+  if (boot_usb_detected != false)
+  {
+    app_mode = APP_MODE_USB;
+    app_state = APP_STATE_READY;
+    printf("[BOOT] Entering USB mass-storage mode.\r\n");
+  }
+  else
+  {
+    app_mode = APP_MODE_LOGGING;
+    printf("[BOOT] Entering flight logger mode.\r\n");
+    if (FlightLogger_Init() != false)
+    {
+      UpdateAppStateFromLogger();
+      printf("[BOOT] Flight logger initialized successfully.\r\n");
+    }
+    else
+    {
+      app_state = APP_STATE_ERROR;
+      printf("[BOOT] Flight logger initialization failed.\r\n");
+    }
+  }
 
   /* USER CODE END 2 */
 
@@ -151,6 +212,23 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    if (app_mode == APP_MODE_LOGGING)
+    {
+      FlightLogger_RunOnce();
+      UpdateAppStateFromLogger();
+    }
+
+    switch (app_state)
+    {
+      case APP_STATE_INIT:
+      case APP_STATE_READY:
+      case APP_STATE_ACQUIRE:
+      case APP_STATE_WARNING_STORAGE:
+      case APP_STATE_STOPPED:
+      case APP_STATE_ERROR:
+      default:
+        break;
+    }
   }
   /* USER CODE END 3 */
 }
@@ -573,7 +651,7 @@ static void MX_SDMMC2_SD_Init(void)
   hsd2.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
   hsd2.Init.BusWide = SDMMC_BUS_WIDE_4B;
   hsd2.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
-  hsd2.Init.ClockDiv = 2;
+  hsd2.Init.ClockDiv = 4;
   if (HAL_SD_Init(&hsd2) != HAL_OK)
   {
     Error_Handler();
@@ -920,42 +998,6 @@ static void MX_UART4_Init(void)
 }
 
 /**
-  * @brief USB_OTG_HS Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USB_OTG_HS_PCD_Init(void)
-{
-
-  /* USER CODE BEGIN USB_OTG_HS_Init 0 */
-
-  /* USER CODE END USB_OTG_HS_Init 0 */
-
-  /* USER CODE BEGIN USB_OTG_HS_Init 1 */
-
-  /* USER CODE END USB_OTG_HS_Init 1 */
-  hpcd_USB_OTG_HS.Instance = USB_OTG_HS;
-  hpcd_USB_OTG_HS.Init.dev_endpoints = 9;
-  hpcd_USB_OTG_HS.Init.speed = PCD_SPEED_FULL;
-  hpcd_USB_OTG_HS.Init.dma_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.phy_itface = USB_OTG_EMBEDDED_PHY;
-  hpcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.lpm_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
-  hpcd_USB_OTG_HS.Init.use_dedicated_ep1 = DISABLE;
-  hpcd_USB_OTG_HS.Init.use_external_vbus = DISABLE;
-  if (HAL_PCD_Init(&hpcd_USB_OTG_HS) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USB_OTG_HS_Init 2 */
-
-  /* USER CODE END USB_OTG_HS_Init 2 */
-
-}
-
-/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -1006,6 +1048,83 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static bool IsUsbCableConnected(void)
+{
+  uint32_t start_tick = HAL_GetTick();
+
+  while ((HAL_GetTick() - start_tick) < USB_BOOT_ENUMERATION_TIMEOUT_MS)
+  {
+    uint8_t dev_state = hUsbDeviceHS.dev_state;
+
+    if ((dev_state == USBD_STATE_ADDRESSED) ||
+        (dev_state == USBD_STATE_CONFIGURED) ||
+        (dev_state == USBD_STATE_SUSPENDED))
+    {
+      printf("[BOOT] USB host activity detected, device state=%u\r\n",
+             (unsigned int)dev_state);
+      return true;
+    }
+
+    HAL_Delay(USB_BOOT_ENUMERATION_POLL_MS);
+  }
+
+  printf("[BOOT] No USB host enumeration detected, final device state=%u\r\n",
+         (unsigned int)hUsbDeviceHS.dev_state);
+  return false;
+}
+
+static void UpdateUsbModeState(void)
+{
+  bool cable_connected = boot_usb_detected;
+
+  USB_Mode = cable_connected;
+
+  if (cable_connected && !usb_device_started)
+  {
+    if (USBD_Start(&hUsbDeviceHS) == USBD_OK)
+    {
+      usb_device_started = true;
+    }
+  }
+  else if (!cable_connected && usb_device_started)
+  {
+    if (USBD_Stop(&hUsbDeviceHS) == USBD_OK)
+    {
+      usb_device_started = false;
+    }
+  }
+}
+
+static void UpdateAppStateFromLogger(void)
+{
+  switch (FlightLogger_GetState())
+  {
+    case FLIGHT_LOGGER_STATE_READY:
+      app_state = APP_STATE_READY;
+      break;
+
+    case FLIGHT_LOGGER_STATE_ACQUIRE:
+      app_state = APP_STATE_ACQUIRE;
+      break;
+
+    case FLIGHT_LOGGER_STATE_WARNING_STORAGE:
+      app_state = APP_STATE_WARNING_STORAGE;
+      break;
+
+    case FLIGHT_LOGGER_STATE_STOPPED:
+      app_state = APP_STATE_STOPPED;
+      break;
+
+    case FLIGHT_LOGGER_STATE_ERROR:
+      app_state = APP_STATE_ERROR;
+      break;
+
+    case FLIGHT_LOGGER_STATE_INIT:
+    default:
+      app_state = APP_STATE_INIT;
+      break;
+  }
+}
 
 /* USER CODE END 4 */
 
