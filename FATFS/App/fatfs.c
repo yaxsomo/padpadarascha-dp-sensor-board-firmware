@@ -45,7 +45,9 @@ void MX_FATFS_Init(void)
 DWORD get_fattime(void)
 {
   /* USER CODE BEGIN get_fattime */
-  return 0;
+  return ((DWORD)(2026U - 1980U) << 25) |
+         ((DWORD)1U << 21) |
+         ((DWORD)1U << 16);
   /* USER CODE END get_fattime */
 }
 
